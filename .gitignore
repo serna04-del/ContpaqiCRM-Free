@@ -1,0 +1,72 @@
+# CRM Contpaqi Free
+
+Este proyecto es una versión MVP gratuita de un sistema CRM tipo Contpaqi, con módulos para:
+
+- Clientes
+- Proveedores
+- Inventario
+- Ventas
+- Compras
+- Facturas
+- Pagos
+- Dashboard
+- Importación masiva de XML
+- Autenticación por usuario/rol
+
+## Tecnologías
+
+- Node.js
+- Express
+- SQLite con better-sqlite3
+- HTML, CSS y JavaScript vanilla
+
+## Requisitos
+
+- Node.js 18+
+- npm
+
+## Instalación
+
+1. Clona el repositorio
+2. Entra a la carpeta del proyecto
+3. Instala dependencias:
+
+```bash
+npm install
+```
+
+4. Inicia la aplicación:
+
+```bash
+npm start
+```
+
+5. Abre en el navegador:
+
+```text
+http://localhost:3000
+```
+
+## Credenciales por defecto
+
+- Usuario: admin
+- Contraseña: admin123
+
+## Funcionalidades principales
+
+- Registro y gestión de clientes
+- Registro y gestión de proveedores
+- Control de inventario con stock y punto de reorden
+- Registro de ventas y compras
+- Generación de facturas y seguimiento de pagos
+- Dashboard con métricas rápidas
+- Importación masiva de XML de facturas
+- Login con roles (admin / ventas)
+
+## Nota
+
+Esta versión es un MVP funcional y listo para extender con reportes avanzados, contabilidad, exportación PDF/Excel y más módulos ERP.
+
+## Licencia
+
+MIT
