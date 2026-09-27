@@ -241,6 +241,10 @@ button, input, select {
   margin-bottom: 16px;
 }
 
+.small-header {
+  margin-top: 24px;
+}
+
 .data-form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -275,6 +279,7 @@ button, input, select {
   background: white;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
+  padding: 12px;
 }
 
 table {
@@ -346,6 +351,13 @@ th {
   inset: 0;
   opacity: 0;
   cursor: pointer;
+}
+
+.double-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
 }
 
 @media (max-width: 860px) {

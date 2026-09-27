@@ -2,12 +2,13 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+const Database = require('better-sqlite3');
+
 const dataDir = path.join(__dirname, 'data');
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
-const Database = require('better-sqlite3');
 const db = new Database(path.join(dataDir, 'crm.db'));
 
 function hashPassword(password) {
@@ -176,6 +177,59 @@ function initializeDatabase() {
       xml_content TEXT,
       imported_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      parent_id INTEGER,
+      balance REAL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(parent_id) REFERENCES accounts(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS journal_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      reference TEXT,
+      description TEXT,
+      entry_date TEXT DEFAULT CURRENT_TIMESTAMP,
+      total_debit REAL DEFAULT 0,
+      total_credit REAL DEFAULT 0,
+      created_by TEXT DEFAULT 'admin'
+    );
+
+    CREATE TABLE IF NOT EXISTS journal_lines (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entry_id INTEGER NOT NULL,
+      account_id INTEGER NOT NULL,
+      debit REAL DEFAULT 0,
+      credit REAL DEFAULT 0,
+      memo TEXT,
+      FOREIGN KEY(entry_id) REFERENCES journal_entries(id),
+      FOREIGN KEY(account_id) REFERENCES accounts(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS quotes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id INTEGER NOT NULL,
+      quote_number TEXT NOT NULL UNIQUE,
+      total REAL DEFAULT 0,
+      status TEXT DEFAULT 'pendiente',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      expires_at TEXT,
+      FOREIGN KEY(client_id) REFERENCES clients(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS quote_lines (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      quote_id INTEGER NOT NULL,
+      product_name TEXT NOT NULL,
+      quantity INTEGER DEFAULT 1,
+      unit_price REAL DEFAULT 0,
+      subtotal REAL DEFAULT 0,
+      FOREIGN KEY(quote_id) REFERENCES quotes(id)
+    );
   `);
 
   const clientCount = db.prepare('SELECT COUNT(*) as total FROM clients').get().total;
@@ -187,43 +241,19 @@ function initializeDatabase() {
     insertUser.run('admin', hashPassword('admin123'), 'admin');
     insertUser.run('ventas', hashPassword('ventas123'), 'ventas');
   }
+
+  const accountCount = db.prepare('SELECT COUNT(*) as total FROM accounts').get().total;
+  if (accountCount === 0) seedAccounts();
 }
 
 function seedData() {
-  const insertClient = db.prepare(`
-    INSERT INTO clients (name, email, phone, company, address, status)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
-
-  const insertVendor = db.prepare(`
-    INSERT INTO vendors (name, email, phone, company, address, status)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
-
-  const insertProduct = db.prepare(`
-    INSERT INTO inventory (product_name, sku, category, stock, unit_price, cost_price, reorder_level, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  const insertSale = db.prepare(`
-    INSERT INTO sales (client_id, product_id, quantity, total, status, sale_date)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
-
-  const insertPurchase = db.prepare(`
-    INSERT INTO purchases (vendor_id, product_id, quantity, total, status, purchase_date)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
-
-  const insertInvoice = db.prepare(`
-    INSERT INTO invoices (client_id, invoice_number, subtotal, tax, total, issued_at, due_date, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  const insertPayment = db.prepare(`
-    INSERT INTO payments (client_id, invoice_id, amount, payment_date, method, status)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
+  const insertClient = db.prepare(`INSERT INTO clients (name, email, phone, company, address, status) VALUES (?, ?, ?, ?, ?, ?)`);
+  const insertVendor = db.prepare(`INSERT INTO vendors (name, email, phone, company, address, status) VALUES (?, ?, ?, ?, ?, ?)`);
+  const insertProduct = db.prepare(`INSERT INTO inventory (product_name, sku, category, stock, unit_price, cost_price, reorder_level, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+  const insertSale = db.prepare(`INSERT INTO sales (client_id, product_id, quantity, total, status, sale_date) VALUES (?, ?, ?, ?, ?, ?)`);
+  const insertPurchase = db.prepare(`INSERT INTO purchases (vendor_id, product_id, quantity, total, status, purchase_date) VALUES (?, ?, ?, ?, ?, ?)`);
+  const insertInvoice = db.prepare(`INSERT INTO invoices (client_id, invoice_number, subtotal, tax, total, issued_at, due_date, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+  const insertPayment = db.prepare(`INSERT INTO payments (client_id, invoice_id, amount, payment_date, method, status) VALUES (?, ?, ?, ?, ?, ?)`);
 
   const clients = [
     ['María López', 'maria@ejemplo.com', '555-1001', 'López & Asociados', 'Guadalajara', 'activo'],
@@ -263,11 +293,31 @@ function seedData() {
   insertPayment.run(createdClients[1].id, 2, 2500, '2026-09-16', 'efectivo', 'pendiente');
 }
 
+function seedAccounts() {
+  const insertAccount = db.prepare(`INSERT INTO accounts (code, name, type, parent_id, balance) VALUES (?, ?, ?, ?, ?)`);
+
+  const accounts = [
+    ['1000', 'Caja y Bancos', 'activo', null, 0],
+    ['1100', 'Clientes', 'activo', null, 0],
+    ['1200', 'IVA por Cobrar', 'activo', null, 0],
+    ['2000', 'Proveedores', 'pasivo', null, 0],
+    ['2100', 'IVA por Pagar', 'pasivo', null, 0],
+    ['3000', 'Capital Social', 'patrimonio', null, 0],
+    ['4000', 'Ventas', 'ingreso', null, 0],
+    ['5000', 'Compras', 'gasto', null, 0],
+    ['5100', 'Gastos Administrativos', 'gasto', null, 0],
+    ['6000', 'Cuentas por Cobrar', 'activo', null, 0],
+    ['6100', 'Cuentas por Pagar', 'pasivo', null, 0]
+  ];
+
+  accounts.forEach((account) => insertAccount.run(...account));
+}
+
 function formatCurrency(value) {
   return new Intl.NumberFormat('es-MX', {
     style: 'currency',
     currency: 'MXN'
-  }).format(value || 0);
+  }).format(Number(value || 0));
 }
 
 function getDashboardStats() {
@@ -279,6 +329,8 @@ function getDashboardStats() {
   const pendingInvoices = db.prepare('SELECT COUNT(*) as total FROM invoices WHERE status != "pagado"').get().total;
   const lowStock = db.prepare('SELECT COUNT(*) as total FROM inventory WHERE stock <= reorder_level').get().total;
   const xmlImported = db.prepare('SELECT COUNT(*) as total FROM xml_invoices').get().total;
+  const totalAccounts = db.prepare('SELECT COUNT(*) as total FROM accounts').get().total;
+  const totalQuotes = db.prepare('SELECT COUNT(*) as total FROM quotes').get().total;
 
   return {
     totalClients,
@@ -288,20 +340,22 @@ function getDashboardStats() {
     totalPurchases,
     pendingInvoices,
     lowStock,
-    xmlImported
+    xmlImported,
+    totalAccounts,
+    totalQuotes
   };
 }
 
 function listClients() {
-  return db.prepare(`SELECT * FROM clients ORDER BY created_at DESC`).all();
+  return db.prepare('SELECT * FROM clients ORDER BY created_at DESC').all();
 }
 
 function listVendors() {
-  return db.prepare(`SELECT * FROM vendors ORDER BY created_at DESC`).all();
+  return db.prepare('SELECT * FROM vendors ORDER BY created_at DESC').all();
 }
 
 function listInventory() {
-  return db.prepare(`SELECT * FROM inventory ORDER BY created_at DESC`).all();
+  return db.prepare('SELECT * FROM inventory ORDER BY created_at DESC').all();
 }
 
 function listSales() {
@@ -348,7 +402,51 @@ function listUsers() {
 }
 
 function listXmlInvoices() {
-  return db.prepare(`SELECT * FROM xml_invoices ORDER BY imported_at DESC`).all();
+  return db.prepare('SELECT * FROM xml_invoices ORDER BY imported_at DESC').all();
+}
+
+function listAccounts() {
+  return db.prepare('SELECT * FROM accounts ORDER BY code ASC').all();
+}
+
+function listJournalEntries() {
+  const entries = db.prepare(`
+    SELECT je.*, 
+      (SELECT json_group_array(json_object(
+        'id', jl.id,
+        'account_id', jl.account_id,
+        'account_name', a.name,
+        'debit', jl.debit,
+        'credit', jl.credit,
+        'memo', jl.memo
+      )) FROM journal_lines jl LEFT JOIN accounts a ON a.id = jl.account_id WHERE jl.entry_id = je.id) AS lines_json
+    FROM journal_entries je
+    ORDER BY je.entry_date DESC, je.id DESC
+  `).all();
+
+  return entries.map((entry) => ({
+    ...entry,
+    lines: entry.lines_json ? JSON.parse(entry.lines_json) : []
+  }));
+}
+
+function listQuotes() {
+  return db.prepare(`
+    SELECT q.*, c.name AS client_name,
+      (SELECT json_group_array(json_object(
+        'id', ql.id,
+        'product_name', ql.product_name,
+        'quantity', ql.quantity,
+        'unit_price', ql.unit_price,
+        'subtotal', ql.subtotal
+      )) FROM quote_lines ql WHERE ql.quote_id = q.id) AS lines_json
+    FROM quotes q
+    LEFT JOIN clients c ON c.id = q.client_id
+    ORDER BY q.created_at DESC
+  `).all().map((quote) => ({
+    ...quote,
+    lines: quote.lines_json ? JSON.parse(quote.lines_json) : []
+  }));
 }
 
 function getUserByUsername(username) {
@@ -372,11 +470,7 @@ function createUser(data) {
     throw new Error('El usuario ya existe');
   }
 
-  const stmt = db.prepare(`
-    INSERT INTO users (username, password_hash, role)
-    VALUES (@username, @password_hash, @role)
-  `);
-
+  const stmt = db.prepare(`INSERT INTO users (username, password_hash, role) VALUES (@username, @password_hash, @role)`);
   const result = stmt.run({
     username,
     password_hash: hashPassword(password),
@@ -394,10 +488,7 @@ function validateCredentials(username, password) {
 }
 
 function createClient(data) {
-  const stmt = db.prepare(`
-    INSERT INTO clients (name, email, phone, company, address, status)
-    VALUES (@name, @email, @phone, @company, @address, @status)
-  `);
+  const stmt = db.prepare(`INSERT INTO clients (name, email, phone, company, address, status) VALUES (@name, @email, @phone, @company, @address, @status)`);
   const result = stmt.run({
     name: data.name || 'Cliente sin nombre',
     email: data.email || '',
@@ -410,10 +501,7 @@ function createClient(data) {
 }
 
 function createVendor(data) {
-  const stmt = db.prepare(`
-    INSERT INTO vendors (name, email, phone, company, address, status)
-    VALUES (@name, @email, @phone, @company, @address, @status)
-  `);
+  const stmt = db.prepare(`INSERT INTO vendors (name, email, phone, company, address, status) VALUES (@name, @email, @phone, @company, @address, @status)`);
   const result = stmt.run({
     name: data.name || 'Proveedor sin nombre',
     email: data.email || '',
@@ -426,10 +514,7 @@ function createVendor(data) {
 }
 
 function createInventoryItem(data) {
-  const stmt = db.prepare(`
-    INSERT INTO inventory (product_name, sku, category, stock, unit_price, cost_price, reorder_level, status)
-    VALUES (@product_name, @sku, @category, @stock, @unit_price, @cost_price, @reorder_level, @status)
-  `);
+  const stmt = db.prepare(`INSERT INTO inventory (product_name, sku, category, stock, unit_price, cost_price, reorder_level, status) VALUES (@product_name, @sku, @category, @stock, @unit_price, @cost_price, @reorder_level, @status)`);
   const result = stmt.run({
     product_name: data.product_name || 'Producto nuevo',
     sku: data.sku || '',
@@ -450,21 +535,12 @@ function createSale(data) {
   const total = Number(data.total || 0);
 
   const product = db.prepare('SELECT * FROM inventory WHERE id = ?').get(productId);
-  if (!product) {
-    throw new Error('Producto no encontrado');
-  }
-
-  if ((product.stock || 0) < quantity) {
-    throw new Error('No hay suficiente stock disponible');
-  }
+  if (!product) throw new Error('Producto no encontrado');
+  if ((product.stock || 0) < quantity) throw new Error('No hay suficiente stock disponible');
 
   db.prepare('UPDATE inventory SET stock = stock - ? WHERE id = ?').run(quantity, productId);
 
-  const stmt = db.prepare(`
-    INSERT INTO sales (client_id, product_id, quantity, total, status, sale_date)
-    VALUES (@client_id, @product_id, @quantity, @total, @status, @sale_date)
-  `);
-
+  const stmt = db.prepare(`INSERT INTO sales (client_id, product_id, quantity, total, status, sale_date) VALUES (@client_id, @product_id, @quantity, @total, @status, @sale_date)`);
   const result = stmt.run({
     client_id: clientId,
     product_id: productId,
@@ -483,11 +559,7 @@ function createPurchase(data) {
   const quantity = Number(data.quantity || 1);
   const total = Number(data.total || 0);
 
-  const stmt = db.prepare(`
-    INSERT INTO purchases (vendor_id, product_id, quantity, total, status, purchase_date)
-    VALUES (@vendor_id, @product_id, @quantity, @total, @status, @purchase_date)
-  `);
-
+  const stmt = db.prepare(`INSERT INTO purchases (vendor_id, product_id, quantity, total, status, purchase_date) VALUES (@vendor_id, @product_id, @quantity, @total, @status, @purchase_date)`);
   const result = stmt.run({
     vendor_id: vendorId,
     product_id: productId,
@@ -506,11 +578,7 @@ function createPurchase(data) {
 }
 
 function createInvoice(data) {
-  const stmt = db.prepare(`
-    INSERT INTO invoices (client_id, invoice_number, subtotal, tax, total, issued_at, due_date, status)
-    VALUES (@client_id, @invoice_number, @subtotal, @tax, @total, @issued_at, @due_date, @status)
-  `);
-
+  const stmt = db.prepare(`INSERT INTO invoices (client_id, invoice_number, subtotal, tax, total, issued_at, due_date, status) VALUES (@client_id, @invoice_number, @subtotal, @tax, @total, @issued_at, @due_date, @status)`);
   const result = stmt.run({
     client_id: Number(data.client_id),
     invoice_number: data.invoice_number || `F-${Date.now()}`,
@@ -526,11 +594,7 @@ function createInvoice(data) {
 }
 
 function createPayment(data) {
-  const stmt = db.prepare(`
-    INSERT INTO payments (client_id, invoice_id, amount, payment_date, method, status)
-    VALUES (@client_id, @invoice_id, @amount, @payment_date, @method, @status)
-  `);
-
+  const stmt = db.prepare(`INSERT INTO payments (client_id, invoice_id, amount, payment_date, method, status) VALUES (@client_id, @invoice_id, @amount, @payment_date, @method, @status)`);
   const result = stmt.run({
     client_id: Number(data.client_id),
     invoice_id: data.invoice_id ? Number(data.invoice_id) : null,
@@ -541,6 +605,101 @@ function createPayment(data) {
   });
 
   return db.prepare('SELECT * FROM payments WHERE id = ?').get(result.lastInsertRowid);
+}
+
+function createAccount(data) {
+  const code = String(data.code || '').trim();
+  const name = String(data.name || '').trim();
+  const type = String(data.type || 'activo').trim();
+  if (!code || !name) throw new Error('Código y nombre son obligatorios');
+
+  const stmt = db.prepare(`INSERT INTO accounts (code, name, type, parent_id, balance) VALUES (@code, @name, @type, @parent_id, @balance)`);
+  const result = stmt.run({
+    code,
+    name,
+    type,
+    parent_id: data.parent_id ? Number(data.parent_id) : null,
+    balance: Number(data.balance || 0)
+  });
+
+  return db.prepare('SELECT * FROM accounts WHERE id = ?').get(result.lastInsertRowid);
+}
+
+function createJournalEntry(data) {
+  const debitAccountId = Number(data.debit_account_id);
+  const creditAccountId = Number(data.credit_account_id);
+  const amount = Number(data.amount || 0);
+  const description = String(data.description || '').trim();
+  const entryDate = data.entry_date || new Date().toISOString().slice(0, 10);
+
+  if (!debitAccountId || !creditAccountId || !amount || !description) {
+    throw new Error('Faltan datos para crear el asiento contable');
+  }
+
+  if (debitAccountId === creditAccountId) {
+    throw new Error('La cuenta deudora y acreedora no pueden ser la misma');
+  }
+
+  const stmt = db.transaction(() => {
+    const reference = `AS-${Date.now()}`;
+    const entry = db.prepare(`INSERT INTO journal_entries (reference, description, entry_date, total_debit, total_credit, created_by) VALUES (@reference, @description, @entry_date, @total_debit, @total_credit, @created_by)`).run({
+      reference,
+      description,
+      entry_date: entryDate,
+      total_debit: amount,
+      total_credit: amount,
+      created_by: data.created_by || 'admin'
+    });
+
+    const entryId = entry.lastInsertRowid;
+    db.prepare(`INSERT INTO journal_lines (entry_id, account_id, debit, credit, memo) VALUES (?, ?, ?, ?, ?)`).run(entryId, debitAccountId, amount, 0, description);
+    db.prepare(`INSERT INTO journal_lines (entry_id, account_id, debit, credit, memo) VALUES (?, ?, ?, ?, ?)`).run(entryId, creditAccountId, 0, amount, description);
+
+    return db.prepare(`SELECT je.*, (SELECT json_group_array(json_object('id', jl.id, 'account_id', jl.account_id, 'debit', jl.debit, 'credit', jl.credit, 'memo', jl.memo)) FROM journal_lines jl WHERE jl.entry_id = je.id) AS lines_json FROM journal_entries je WHERE je.id = ?`).get(entryId);
+  });
+
+  const entry = stmt();
+  return {
+    ...entry,
+    lines: entry.lines_json ? JSON.parse(entry.lines_json) : []
+  };
+}
+
+function createQuote(data) {
+  const clientId = Number(data.client_id);
+  const quoteNumber = String(data.quote_number || `COT-${Date.now()}`).trim();
+  const status = String(data.status || 'pendiente').trim();
+  const expiresAt = data.expires_at || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const items = Array.isArray(data.items) ? data.items : [];
+  if (!clientId || !items.length) {
+    throw new Error('Debe seleccionar un cliente y al menos un producto para la cotización');
+  }
+
+  const total = items.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unit_price || 0)), 0);
+
+  const stmt = db.transaction(() => {
+    const quote = db.prepare(`INSERT INTO quotes (client_id, quote_number, total, status, expires_at) VALUES (@client_id, @quote_number, @total, @status, @expires_at)`).run({
+      client_id: clientId,
+      quote_number: quoteNumber,
+      total,
+      status,
+      expires_at: expiresAt
+    });
+
+    const quoteId = quote.lastInsertRowid;
+    const insertLine = db.prepare(`INSERT INTO quote_lines (quote_id, product_name, quantity, unit_price, subtotal) VALUES (?, ?, ?, ?, ?)`);
+    items.forEach((item) => {
+      const quantity = Number(item.quantity || 0);
+      const unitPrice = Number(item.unit_price || 0);
+      const subtotal = quantity * unitPrice;
+      insertLine.run(quoteId, item.product_name || 'Producto', quantity, unitPrice, subtotal);
+    });
+
+    return db.prepare(`SELECT q.*, c.name as client_name FROM quotes q LEFT JOIN clients c ON c.id = q.client_id WHERE q.id = ?`).get(quoteId);
+  });
+
+  return stmt();
 }
 
 function importXmlInvoices(xmls) {
@@ -555,21 +714,7 @@ function importXmlInvoices(xmls) {
 
     const existing = db.prepare('SELECT id FROM xml_invoices WHERE uuid = ? OR file_name = ?').get(parsed.uuid || '', parsed.file_name || '');
     if (existing) {
-      db.prepare(`
-        UPDATE xml_invoices SET
-          folio = @folio,
-          fecha = @fecha,
-          subtotal = @subtotal,
-          total = @total,
-          rfc_emisor = @rfc_emisor,
-          nombre_emisor = @nombre_emisor,
-          rfc_receptor = @rfc_receptor,
-          nombre_receptor = @nombre_receptor,
-          xml_content = @xml_content,
-          status = @status,
-          imported_at = CURRENT_TIMESTAMP
-        WHERE id = @id
-      `).run({
+      db.prepare(`UPDATE xml_invoices SET folio = @folio, fecha = @fecha, subtotal = @subtotal, total = @total, rfc_emisor = @rfc_emisor, nombre_emisor = @nombre_emisor, rfc_receptor = @rfc_receptor, nombre_receptor = @nombre_receptor, xml_content = @xml_content, status = @status, imported_at = CURRENT_TIMESTAMP WHERE id = @id`).run({
         id: existing.id,
         folio: parsed.folio,
         fecha: parsed.fecha,
@@ -586,13 +731,7 @@ function importXmlInvoices(xmls) {
       continue;
     }
 
-    const result = db.prepare(`
-      INSERT INTO xml_invoices (
-        file_name, uuid, folio, fecha, subtotal, total, rfc_emisor, nombre_emisor, rfc_receptor, nombre_receptor, status, xml_content
-      ) VALUES (
-        @file_name, @uuid, @folio, @fecha, @subtotal, @total, @rfc_emisor, @nombre_emisor, @rfc_receptor, @nombre_receptor, @status, @xml_content
-      )
-    `).run({
+    const result = db.prepare(`INSERT INTO xml_invoices (file_name, uuid, folio, fecha, subtotal, total, rfc_emisor, nombre_emisor, rfc_receptor, nombre_receptor, status, xml_content) VALUES (@file_name, @uuid, @folio, @fecha, @subtotal, @total, @rfc_emisor, @nombre_emisor, @rfc_receptor, @nombre_receptor, @status, @xml_content)`).run({
       file_name: parsed.file_name,
       uuid: parsed.uuid,
       folio: parsed.folio,
@@ -627,6 +766,9 @@ module.exports = {
   listPayments,
   listUsers,
   listXmlInvoices,
+  listAccounts,
+  listJournalEntries,
+  listQuotes,
   getUserById,
   createUser,
   validateCredentials,
@@ -637,7 +779,13 @@ module.exports = {
   createPurchase,
   createInvoice,
   createPayment,
+  createAccount,
+  createJournalEntry,
+  createQuote,
   importXmlInvoices,
   parseXmlInvoice,
-  hashPassword
+  hashPassword,
+  getUserByUsername
 };
+
+initializeDatabase();

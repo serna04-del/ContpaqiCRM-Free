@@ -9,7 +9,10 @@ const state = {
   purchases: [],
   invoices: [],
   payments: [],
-  xmlDocs: []
+  xmlDocs: [],
+  accounts: [],
+  journal: [],
+  quotes: []
 };
 
 const sections = {
@@ -21,7 +24,9 @@ const sections = {
   purchases: document.getElementById('purchases'),
   invoices: document.getElementById('invoices'),
   payments: document.getElementById('payments'),
-  xml: document.getElementById('xml')
+  xml: document.getElementById('xml'),
+  quotes: document.getElementById('quotes'),
+  contabilidad: document.getElementById('contabilidad')
 };
 
 const authScreen = document.getElementById('authScreen');
@@ -88,7 +93,9 @@ function renderDashboard(stats) {
     { label: 'Ventas', value: formatMoney(stats.totalSales) },
     { label: 'Compras', value: formatMoney(stats.totalPurchases) },
     { label: 'Facturas pendientes', value: stats.pendingInvoices },
-    { label: 'XML importados', value: stats.xmlImported }
+    { label: 'XML importados', value: stats.xmlImported },
+    { label: 'Cuentas', value: stats.totalAccounts },
+    { label: 'Cotizaciones', value: stats.totalQuotes }
   ];
 
   const container = document.getElementById('dashboardStats');
@@ -290,9 +297,65 @@ function renderXmlInvoices() {
   `);
 }
 
+function renderQuotes() {
+  renderTable('quotesTable', state.quotes, [
+    { label: 'Cotización' },
+    { label: 'Cliente' },
+    { label: 'Total' },
+    { label: 'Expira' },
+    { label: 'Estado' }
+  ], (quote) => `
+    <tr>
+      <td>${quote.quote_number}</td>
+      <td>${quote.client_name}</td>
+      <td>${formatMoney(quote.total)}</td>
+      <td>${quote.expires_at || '-'}</td>
+      <td><span class="badge-pill ${quote.status === 'aprobada' ? 'success' : quote.status === 'cancelada' ? 'danger' : 'warning'}">${quote.status}</span></td>
+    </tr>
+  `);
+}
+
+function renderAccounts() {
+  renderTable('accountsTable', state.accounts, [
+    { label: 'Código' },
+    { label: 'Nombre' },
+    { label: 'Tipo' },
+    { label: 'Saldo' }
+  ], (account) => `
+    <tr>
+      <td>${account.code}</td>
+      <td>${account.name}</td>
+      <td>${account.type}</td>
+      <td>${formatMoney(account.balance)}</td>
+    </tr>
+  `);
+}
+
+function renderJournalEntries() {
+  renderTable('journalTable', state.journal, [
+    { label: 'Referencia' },
+    { label: 'Descripción' },
+    { label: 'Fecha' },
+    { label: 'Debe' },
+    { label: 'Haber' }
+  ], (entry) => `
+    <tr>
+      <td>${entry.reference}</td>
+      <td>${entry.description}</td>
+      <td>${entry.entry_date}</td>
+      <td>${formatMoney(entry.total_debit)}</td>
+      <td>${formatMoney(entry.total_credit)}</td>
+    </tr>
+  `);
+}
+
 function populateSelect(selectId, items, labelKey, valueKey) {
   const select = document.getElementById(selectId);
   if (!select) return;
+  if (!items.length) {
+    select.innerHTML = '<option value="">Sin registros</option>';
+    return;
+  }
   select.innerHTML = items.map((item) => `<option value="${item[valueKey]}">${item[labelKey]}</option>`).join('');
 }
 
@@ -321,7 +384,7 @@ async function loadAll() {
     return;
   }
 
-  const [dashboard, clients, vendors, inventory, sales, purchases, invoices, payments, xmlDocs] = await Promise.all([
+  const [dashboard, clients, vendors, inventory, sales, purchases, invoices, payments, xmlDocs, accounts, journal, quotes] = await Promise.all([
     apiFetch('/api/dashboard'),
     apiFetch('/api/clients'),
     apiFetch('/api/vendors'),
@@ -330,7 +393,10 @@ async function loadAll() {
     apiFetch('/api/purchases'),
     apiFetch('/api/invoices'),
     apiFetch('/api/payments'),
-    apiFetch('/api/xml')
+    apiFetch('/api/xml'),
+    apiFetch('/api/accounts'),
+    apiFetch('/api/journal'),
+    apiFetch('/api/quotes')
   ]);
 
   state.dashboard = dashboard;
@@ -342,6 +408,9 @@ async function loadAll() {
   state.invoices = invoices;
   state.payments = payments;
   state.xmlDocs = xmlDocs;
+  state.accounts = accounts;
+  state.journal = journal;
+  state.quotes = quotes;
 
   renderDashboard(dashboard.stats);
   renderClients();
@@ -352,6 +421,9 @@ async function loadAll() {
   renderInvoices();
   renderPayments();
   renderXmlInvoices();
+  renderQuotes();
+  renderAccounts();
+  renderJournalEntries();
 
   populateSelect('saleClientSelect', state.clients, 'name', 'id');
   populateSelect('saleProductSelect', state.inventory, 'product_name', 'id');
@@ -360,6 +432,9 @@ async function loadAll() {
   populateSelect('invoiceClientSelect', state.clients, 'name', 'id');
   populateSelect('paymentClientSelect', state.clients, 'name', 'id');
   populateSelect('paymentInvoiceSelect', state.invoices, 'invoice_number', 'id');
+  populateSelect('quoteClientSelect', state.clients, 'name', 'id');
+  populateSelect('debitAccountSelect', state.accounts, 'name', 'id');
+  populateSelect('creditAccountSelect', state.accounts, 'name', 'id');
 }
 
 bindForm('clientForm', async (payload) => {
@@ -390,6 +465,27 @@ bindForm('paymentForm', async (payload) => {
   await apiFetch('/api/payments', { method: 'POST', body: JSON.stringify(payload) });
 });
 
+bindForm('accountForm', async (payload) => {
+  await apiFetch('/api/accounts', { method: 'POST', body: JSON.stringify(payload) });
+});
+
+bindForm('journalForm', async (payload) => {
+  await apiFetch('/api/journal', { method: 'POST', body: JSON.stringify(payload) });
+});
+
+bindForm('quoteForm', async (payload) => {
+  const items = [{
+    product_name: payload.product_name,
+    quantity: Number(payload.quantity || 1),
+    unit_price: Number(payload.unit_price || 0)
+  }];
+
+  await apiFetch('/api/quotes', {
+    method: 'POST',
+    body: JSON.stringify({ ...payload, items })
+  });
+});
+
 document.querySelectorAll('.nav-link').forEach((button) => {
   button.addEventListener('click', () => showSection(button.dataset.section));
 });
@@ -397,7 +493,7 @@ document.querySelectorAll('.nav-link').forEach((button) => {
 document.querySelectorAll('[data-toggle-form]').forEach((button) => {
   button.addEventListener('click', () => {
     const form = document.getElementById(button.dataset.toggleForm);
-    form.classList.toggle('hidden');
+    if (form) form.classList.toggle('hidden');
   });
 });
 
